@@ -101,6 +101,7 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_link(void);
 extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
+extern uint64 sys_trace(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -126,7 +127,54 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_trace]   sys_trace,
 };
+
+// printing syscall name and argument list
+void printtrace(int pid, int signum, int ret) {
+
+  printf("proc %d recieved ", pid);
+
+  int numargs = 0;
+  switch(signum) {
+    case SYS_fork   :  printf("fork");    numargs = 0; break;
+    case SYS_exit   :  printf("exit");    numargs = 1; break;
+    case SYS_wait   :  printf("wait");    numargs = 1; break;
+    case SYS_pipe   :  printf("pipe");    numargs = 1; break;
+    case SYS_read   :  printf("read");    numargs = 3; break;
+    case SYS_kill   :  printf("kill");    numargs = 1; break;
+    case SYS_exec   :  printf("exec");    numargs = 2; break;
+    case SYS_fstat  :  printf("fstat");   numargs = 2; break;
+    case SYS_chdir  :  printf("chdir");   numargs = 1; break;
+    case SYS_dup    :  printf("dup");     numargs = 1; break;
+    case SYS_getpid :  printf("getpid");  numargs = 0; break;
+    case SYS_sbrk   :  printf("sbrk");    numargs = 1; break;
+    case SYS_sleep  :  printf("sleep");   numargs = 1; break;
+    case SYS_uptime :  printf("uptime");  numargs = 0; break;
+    case SYS_open   :  printf("open");    numargs = 1; break;
+    case SYS_write  :  printf("write");   numargs = 3; break;
+    case SYS_mknod  :  printf("mknod");   numargs = 3; break;
+    case SYS_unlink :  printf("unlink");  numargs = 1; break;
+    case SYS_link   :  printf("link");    numargs = 2; break;
+    case SYS_mkdir  :  printf("mkdir");   numargs = 1; break;
+    case SYS_close  :  printf("close");   numargs = 1; break;
+    case SYS_trace  :  printf("trace");   numargs = 1; break;
+    default         :  printf("<NA>");    numargs = 0;
+  }
+  if ( numargs == 0 )
+    goto noargs;
+
+  printf(" ( ");
+  for ( int i = 0; i < numargs; i++ ) {
+    printf("%d ", argraw(i));
+  }
+  printf(")");
+
+noargs:
+
+  printf(" returned %d\n", ret);
+  return;
+}
 
 void
 syscall(void)
@@ -138,7 +186,11 @@ syscall(void)
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     // Use num to lookup the system call function for num, call it,
     // and store its return value in p->trapframe->a0
-    p->trapframe->a0 = syscalls[num]();
+    int ret = syscalls[num]();
+    if( ((1<<num) & p->tracemask) != 0 ) {
+      printtrace(p->pid, num, ret);
+    }
+    p->trapframe->a0 = ret;
   } else {
     printf("%d %s: unknown sys call %d\n",
             p->pid, p->name, num);
