@@ -124,6 +124,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->creation_time = ticks;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -452,21 +453,47 @@ scheduler(void)
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
+    // if scheduling algorithm is round robin
+    if (0) {
+      for(p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if(p->state == RUNNABLE) {
+          // Switch to chosen process.  It is the process's job
+          // to release its lock and then reacquire it
+          // before jumping back to us.
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
+          // Process is done running for now.
+          // It should have changed its p->state before coming back.
+          c->proc = 0;
+        }
+        release(&p->lock);
       }
-      release(&p->lock);
+    } else {
+      struct proc *earliest = 0;
+      if (earliest) {
+        printf("earliest: %d\n", earliest->pid);
+      }
+      for(p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if(p->state == RUNNABLE && (earliest == 0 || earliest->creation_time > p->creation_time)) {
+          if (earliest != 0)
+            release(&earliest->lock);
+          earliest = p;
+        }
+        else {
+          release(&p->lock);
+        }
+      }
+      if (earliest != 0) {
+        earliest->state = RUNNING;
+        c->proc = earliest;
+        swtch(&c->context, &earliest->context);
+        c->proc = 0;
+        release(&earliest->lock);
+      }
     }
   }
 }
