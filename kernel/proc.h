@@ -105,5 +105,5 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   int tracemask;               // Integer mask specifying which syscalls to trace
-  uint64 creation_time;          // ticks when process started
+  uint64 ctime;                // Tick at which the process started
 };

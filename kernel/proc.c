@@ -124,7 +124,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-  p->creation_time = ticks;
+  p->ctime = ticks;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -481,7 +481,7 @@ scheduler(void)
       }
       for(p = proc; p < &proc[NPROC]; p++) {
         acquire(&p->lock);
-        if(p->state == RUNNABLE && (earliest == 0 || earliest->creation_time > p->creation_time)) {
+        if(p->state == RUNNABLE && (earliest == 0 || earliest->ctime > p->ctime)) {
           if (earliest != 0)
             release(&earliest->lock);
           earliest = p;
