@@ -124,7 +124,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-  p->ctime = ticks;
+  p->tickets = 1;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -146,6 +146,9 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+  p->rtime = 0;
+  p->etime = 0;
+  p->ctime = ticks;
 
   return p;
 }
@@ -313,6 +316,7 @@ fork(void)
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   np->tracemask = p->tracemask;
+  np->tickets = p->tickets;
 
   pid = np->pid;
 
@@ -381,6 +385,7 @@ exit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
+  p->etime = ticks;
 
   release(&wait_lock);
 
@@ -438,6 +443,77 @@ wait(uint64 addr)
   }
 }
 
+// Wait for a child process to exit and return its pid.
+// Return -1 if this process has no children.
+int
+waitx(uint64 addr, uint* wtime, uint* rtime)
+{
+  struct proc *np;
+  int havekids, pid;
+  struct proc *p = myproc();
+
+  acquire(&wait_lock);
+
+  for(;;){
+    // Scan through table looking for exited children.
+    havekids = 0;
+    for(np = proc; np < &proc[NPROC]; np++){
+      if(np->parent == p){
+        // make sure the child isn't still in exit() or swtch().
+        acquire(&np->lock);
+
+        havekids = 1;
+        if(np->state == ZOMBIE){
+          // Found one.
+          pid = np->pid;
+          *rtime = np->rtime;
+          *wtime = np->etime - np->ctime - np->rtime;
+          if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
+                                  sizeof(np->xstate)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }
+          freeproc(np);
+          release(&np->lock);
+          release(&wait_lock);
+          return pid;
+        }
+        release(&np->lock);
+      }
+    }
+
+    // No point waiting if we don't have any children.
+    if(!havekids || p->killed){
+      release(&wait_lock);
+      return -1;
+    }
+
+    // Wait for a child to exit.
+    sleep(p, &wait_lock);  //DOC: wait-sleep
+  }
+}
+
+void
+update_time()
+{
+  struct proc* p;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state == RUNNING) {
+      p->rtime++;
+    }
+    release(&p->lock); 
+  }
+}
+
+
+// Updates random_choice to a random number less or equal to max
+void 
+random_value(int *random_choice, int max) {
+  *random_choice = (*random_choice * 1103515245 + ticks) % (max+1);
+}
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -450,6 +526,7 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
+  int random_choice = 5;
   
   c->proc = 0;
   for(;;){
@@ -474,7 +551,8 @@ scheduler(void)
         }
         release(&p->lock);
       }
-    } else {
+    } 
+    else if (0) { // If scheduling algorithm is fcfs
       struct proc *earliest = 0;
       if (earliest) {
         printf("earliest: %d\n", earliest->pid);
@@ -496,6 +574,44 @@ scheduler(void)
         swtch(&c->context, &earliest->context);
         c->proc = 0;
         release(&earliest->lock);
+      }
+    } 
+    else if (1) { // if scheduling algorithm is lottery based
+      int total_tickets = 0;
+      struct proc *winner = 0;
+      for(p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if(p->state == RUNNABLE) {
+          total_tickets += p->tickets;
+        } else {
+          release(&p->lock);
+        }
+      }
+
+      random_value(&random_choice, total_tickets);
+
+      // printf("random choice: %d, num tickets: %d\n", random_choice, total_tickets);
+      int current = 0;
+      int flag = 0;
+
+      for(p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if(p->state == RUNNABLE) {
+          current += p->tickets;
+          if (current >= random_choice && flag == 0) {
+            winner = p;
+            flag = 1;
+            continue;
+          }
+        }
+      }
+
+      if (winner != 0) {
+        winner->state = RUNNING;
+        c->proc = winner;
+        swtch(&c->context, &winner->context);
+        c->proc = 0;
+        release(&winner->lock);
       }
     }
   }

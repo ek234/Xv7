@@ -105,5 +105,8 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   int tracemask;               // Integer mask specifying which syscalls to trace
-  uint64 ctime;                // Tick at which the process started
+  int tickets;                 // Number of tickets for lottery scheduler
+  uint rtime;                   // How long the process ran for
+  uint ctime;                   // When was the process created 
+  uint etime;                   // When did the process exited
 };
