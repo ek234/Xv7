@@ -165,6 +165,9 @@ void printtrace(int pid, int signum, int ret) {
     case SYS_mkdir  :  printf("mkdir");   numargs = 1; break;
     case SYS_close  :  printf("close");   numargs = 1; break;
     case SYS_trace  :  printf("trace");   numargs = 1; break;
+    case SYS_waitx        :  printf("waitx");          numargs = 3; break;
+    case SYS_settickets   :  printf("settickets");     numargs = 1; break;
+    case SYS_set_priority :  printf("setpriority");    numargs = 2; break;
     default         :  printf("<NA>");    numargs = 0;
   }
   if ( numargs == 0 )
