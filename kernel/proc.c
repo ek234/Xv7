@@ -6,6 +6,8 @@
 #include "proc.h"
 #include "defs.h"
 
+uint random_choice = 12345;
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -125,6 +127,10 @@ found:
   p->pid = allocpid();
   p->state = USED;
   p->tickets = 1;
+  p->spriority = 60;
+  p->num_sched = 0;
+  p->pbs_rtime = 0;
+  p->pbs_stime = 0;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -502,16 +508,225 @@ update_time()
     acquire(&p->lock);
     if (p->state == RUNNING) {
       p->rtime++;
+      p->pbs_rtime++;
+    }
+    else if (p->state == SLEEPING) {
+      p->pbs_stime++;
     }
     release(&p->lock); 
   }
 }
 
+// Sets the number of tickets for the process
+int
+settickets(int tickets)
+{
+  struct proc* p = myproc();
+  if (tickets < 1) {
+    return -1;
+  }
+  p->tickets = tickets;
+  return 0;
+}
 
-// Updates random_choice to a random number less or equal to max
-void 
-random_value(int *random_choice, int max) {
-  *random_choice = (*random_choice * 1103515245 + ticks) % (max+1);
+int set_priority(int new_priority, int pid)
+{
+  struct proc* p;
+  int old_priority = -1;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->pid == pid) {
+      old_priority = p->spriority;
+      p->spriority = new_priority;
+      p->pbs_rtime = 0;
+      p->pbs_stime = 0;
+
+      if (old_priority > new_priority) {
+        release(&p->lock);
+        yield();
+        return old_priority;
+      }
+    }
+    release(&p->lock);
+  }
+  return old_priority;
+}
+
+// Updates random_choice to a random number from 1 to max
+int
+random_value(int max) {
+  if (max < 1) {
+    return 0;
+  }
+  random_choice = (random_choice * 1103515245 + ticks) % (1 << 31);
+  return (random_choice % max) + 1;
+}
+
+// Round Robin Scheduler
+void
+rr_scheduler(struct cpu* c) 
+{
+  struct proc *p;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state == RUNNABLE) {
+      // Switch to chosen process.  It is the process's job
+      // to release its lock and then reacquire it
+      // before jumping back to us.
+      p->state = RUNNING;
+      c->proc = p;
+      swtch(&c->context, &p->context);
+
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;
+    }
+    release(&p->lock);
+  }
+}
+
+// FCFS scheduler
+void
+fcfs_scheduler(struct cpu* c)
+{
+  struct proc *p;
+  struct proc *earliest = 0;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state == RUNNABLE && (earliest == 0 || earliest->ctime > p->ctime)) {
+      if (earliest != 0)
+        release(&earliest->lock);
+      earliest = p;
+    }
+    else {
+      release(&p->lock);
+    }
+  }
+  if (earliest != 0) {
+    earliest->state = RUNNING;
+    c->proc = earliest;
+    swtch(&c->context, &earliest->context);
+    c->proc = 0;
+    release(&earliest->lock);
+  }
+}
+
+// Lottery scheduler
+void
+lbs_scheduler(struct cpu* c)
+{
+  int total_tickets = 0;
+  struct proc *p;
+  struct proc *winner = 0;
+  struct proc *acquired_procs[NPROC];
+  int aq_cnt = 0;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state == RUNNABLE) {
+      total_tickets += p->tickets;
+      acquired_procs[aq_cnt++] = p;
+    }
+    else {
+      release(&p->lock);
+    }
+  }
+
+  int rand = random_value(total_tickets);
+
+  int current = 0;
+  int flag = 0;
+
+  for(int i = 0; i < aq_cnt; i++) {
+    p = acquired_procs[i];
+    if(p->state == RUNNABLE) {
+      current += p->tickets;
+      if (current >= rand && flag == 0) {
+        winner = p;
+        flag = 1;
+        continue;
+      }
+    }
+    release(&p->lock);
+  }
+
+  if (winner != 0) {
+    winner->state = RUNNING;
+    c->proc = winner;
+    swtch(&c->context, &winner->context);
+    c->proc = 0;
+    release(&winner->lock);
+  }
+}
+
+// PBS scheduler
+void
+pbs_scheduler(struct cpu* c) {
+  struct proc *p;
+  struct proc *favoured = 0;
+  int favoured_dp;
+  int niceness;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state == RUNNABLE) {
+      if (p->rtime + p->stime != 0)
+        niceness = ( p->stime*10) / (p->stime + p->rtime);
+      else
+        niceness = 5;
+      
+      int dp = p->spriority - niceness + 5;
+      if (dp > 100) dp = 100;
+      if (dp < 0) dp = 0;
+
+      int flag = 0;
+      if (favoured == 0)
+       flag = 1;
+      else if (dp < favoured_dp)
+        flag = 1;
+      else if (favoured_dp == dp && favoured->num_sched > p->num_sched)
+        flag = 1;
+      else if (favoured_dp == dp && favoured->num_sched == p->num_sched && favoured->ctime > p->ctime)
+        flag = 1;
+      
+      if (flag) {
+        if (favoured != 0)
+          release(&favoured->lock);
+        favoured = p;
+        favoured_dp = dp;
+      } else {
+        release(&p->lock);
+      }
+    }
+    else {
+      release(&p->lock);
+    }
+  }
+  if (favoured != 0) {
+    favoured->state = RUNNING;
+    favoured->num_sched++;
+    c->proc = favoured;
+    favoured->pbs_rtime = 0;
+    favoured->pbs_stime = 0;
+    swtch(&c->context, &favoured->context);
+    c->proc = 0;
+    release(&favoured->lock);
+  }
+}
+
+// Chooses a scheduler
+void
+choose_scheduler(struct cpu* c)
+{
+#ifdef FCFS
+  fcfs_scheduler(c);
+#elif defined(LBS)
+  lbs_scheduler(c);
+#elif defined(PBS)
+  pbs_scheduler(c);
+#elif defined(MLFQ)
+  mlfq_scheduler(c);
+#else
+  rr_scheduler(c);
+#endif
 }
 
 // Per-CPU process scheduler.
@@ -524,96 +739,12 @@ random_value(int *random_choice, int max) {
 void
 scheduler(void)
 {
-  struct proc *p;
   struct cpu *c = mycpu();
-  int random_choice = 5;
-  
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-
-    // if scheduling algorithm is round robin
-    if (0) {
-      for(p = proc; p < &proc[NPROC]; p++) {
-        acquire(&p->lock);
-        if(p->state == RUNNABLE) {
-          // Switch to chosen process.  It is the process's job
-          // to release its lock and then reacquire it
-          // before jumping back to us.
-          p->state = RUNNING;
-          c->proc = p;
-          swtch(&c->context, &p->context);
-
-          // Process is done running for now.
-          // It should have changed its p->state before coming back.
-          c->proc = 0;
-        }
-        release(&p->lock);
-      }
-    } 
-    else if (0) { // If scheduling algorithm is fcfs
-      struct proc *earliest = 0;
-      if (earliest) {
-        printf("earliest: %d\n", earliest->pid);
-      }
-      for(p = proc; p < &proc[NPROC]; p++) {
-        acquire(&p->lock);
-        if(p->state == RUNNABLE && (earliest == 0 || earliest->ctime > p->ctime)) {
-          if (earliest != 0)
-            release(&earliest->lock);
-          earliest = p;
-        }
-        else {
-          release(&p->lock);
-        }
-      }
-      if (earliest != 0) {
-        earliest->state = RUNNING;
-        c->proc = earliest;
-        swtch(&c->context, &earliest->context);
-        c->proc = 0;
-        release(&earliest->lock);
-      }
-    } 
-    else if (1) { // if scheduling algorithm is lottery based
-      int total_tickets = 0;
-      struct proc *winner = 0;
-      for(p = proc; p < &proc[NPROC]; p++) {
-        acquire(&p->lock);
-        if(p->state == RUNNABLE) {
-          total_tickets += p->tickets;
-        } else {
-          release(&p->lock);
-        }
-      }
-
-      random_value(&random_choice, total_tickets);
-
-      // printf("random choice: %d, num tickets: %d\n", random_choice, total_tickets);
-      int current = 0;
-      int flag = 0;
-
-      for(p = proc; p < &proc[NPROC]; p++) {
-        acquire(&p->lock);
-        if(p->state == RUNNABLE) {
-          current += p->tickets;
-          if (current >= random_choice && flag == 0) {
-            winner = p;
-            flag = 1;
-            continue;
-          }
-        }
-      }
-
-      if (winner != 0) {
-        winner->state = RUNNING;
-        c->proc = winner;
-        swtch(&c->context, &winner->context);
-        c->proc = 0;
-        release(&winner->lock);
-      }
-    }
+    choose_scheduler(c);
   }
 }
 
@@ -823,7 +954,7 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    printf("%d %s %s", p->pid, state, p->name);
+    printf("%d %s %s | %d %d %d | %d %d", p->pid, state, p->name, p->ctime, p->tickets, p->spriority, p->pbs_rtime, p->pbs_stime);
     printf("\n");
   }
 }

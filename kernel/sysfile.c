@@ -503,12 +503,3 @@ sys_pipe(void)
   }
   return 0;
 }
-
-// int settickets(int number)
-// {
-//   struct proc *p = myproc();
-//   if(number < 1)
-//     return -1;
-//   p->tickets = number;
-//   return 0;
-// }

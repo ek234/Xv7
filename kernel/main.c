@@ -4,6 +4,18 @@
 #include "riscv.h"
 #include "defs.h"
 
+#ifdef FCFS
+int sched_type = 1;
+#elif defined(LBS)
+int sched_type = 2;
+#elif defined(PBS)
+int sched_type = 3;
+#elif defined(MLFQ)
+int sched_type = 4;
+#else
+int sched_type = 0;
+#endif
+
 volatile static int started = 0;
 
 // start() jumps here in supervisor mode on all CPUs.
@@ -11,6 +23,7 @@ void
 main()
 {
   if(cpuid() == 0){
+    printf("Scheduler type: %d\n", sched_type);
     consoleinit();
     printfinit();
     printf("\n");

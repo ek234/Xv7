@@ -53,6 +53,21 @@ sys_waitx(void)
 }
 
 uint64
+sys_settickets(void) {
+  int n;
+  argint(0, &n);
+  return settickets(n);
+}
+
+uint64
+sys_set_priority(void) {
+  int new_priority, pid;
+  argint(0, &new_priority);
+  argint(1, &pid);
+  return set_priority(new_priority, pid);
+}
+
+uint64
 sys_sbrk(void)
 {
   uint64 addr;

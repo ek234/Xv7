@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "mutex": "c",
+        "user.h": "c",
+        "fcntl.h": "c"
+    }
+}

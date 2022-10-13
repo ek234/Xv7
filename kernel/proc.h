@@ -106,7 +106,13 @@ struct proc {
   char name[16];               // Process name (debugging)
   int tracemask;               // Integer mask specifying which syscalls to trace
   int tickets;                 // Number of tickets for lottery scheduler
-  uint rtime;                   // How long the process ran for
-  uint ctime;                   // When was the process created 
-  uint etime;                   // When did the process exited
+  uint rtime;                  // How long the process ran for
+  uint ctime;                  // When was the process created 
+  uint etime;                  // When did the process exited
+  uint stime;                  // When did the process start sleeping
+
+  uint pbs_stime;              // How long did the process sleep since last scheduler call
+  uint pbs_rtime;              // How long did the process run since last scheduler call
+  uint num_sched;              // How many times the process was scheduled (Only for PBS scheduler)
+  uint spriority;              // Static priority of the process
 };
