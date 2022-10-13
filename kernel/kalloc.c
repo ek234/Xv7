@@ -23,10 +23,20 @@ struct {
   struct run *freelist;
 } kmem;
 
+// this counts the number of refs to a page that the cowpies have
+// so, for a page with no cowpy, count is 0. Number of programs that can access it is 1
+// ... for a page with 4 cowpies, count is 4. Number of programs that can access it is 5
+struct {
+  struct spinlock lock;
+  uint64 count;
+} pg_cowrefs[PHYSTOP/PGSIZE];
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  for(uint64 i = 0; i < PHYSTOP/PGSIZE; i++)
+    initlock(&pg_cowrefs[i].lock, "pgcref");
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -50,6 +60,16 @@ kfree(void *pa)
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
+
+  if ( PA2PTE((uint64)pa) & PTE_COW ) {
+    acquire(&pg_cowrefs[(uint64)pa/PGSIZE].lock);
+    if ( pg_cowrefs[(uint64)pa/PGSIZE].count > 0 ) {
+      pg_cowrefs[(uint64)pa/PGSIZE].count--;
+      release(&pg_cowrefs[(uint64)pa/PGSIZE].lock);
+      return;
+    }
+    release(&pg_cowrefs[(uint64)pa/PGSIZE].lock);
+  }
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
@@ -79,4 +99,56 @@ kalloc(void)
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+
+int
+cowmappage (pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm) {
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+    panic("cowlloc: maybe remove condition `(uint64)pa % PGSIZE != 0`");
+
+  acquire(&pg_cowrefs[pa/PGSIZE].lock);
+  int ret = mappages( pagetable, va, size, pa, perm|PTE_COW );
+  // if successfully mapped, increment the page ref counter
+  // TODO : somehow make mappages and increment of pg_cowrefs atomic
+  if ( ret == 0 )
+    pg_cowrefs[pa/PGSIZE].count++;
+  release(&pg_cowrefs[pa/PGSIZE].lock);
+
+  return ret;
+}
+
+int
+dup_pg ( pagetable_t pt, uint64 va ) {
+  pte_t* pte;
+  if((pte = walk(pt, va, 0)) == 0)
+    panic("uvmdup: pte does not exist");
+  if((*pte & PTE_V) == 0)
+    panic("uvmdup: page not valid");
+
+  uint flags = (PTE_FLAGS(*pte)|PTE_W)&~PTE_COW;
+
+  uint64 oldpa = PTE2PA(*pte);
+  uint64 newpa;
+  if((newpa = (uint64)kalloc()) == 0)
+    return -1;
+  memmove((void*)newpa, (void*)oldpa, PGSIZE);
+
+  if(mappages(pt, va, PGSIZE, newpa, flags) != 0){
+    kfree((void*)newpa);
+    return -1;
+  }
+
+  acquire(&pg_cowrefs[oldpa/PGSIZE].lock);
+  if ( pg_cowrefs[oldpa/PGSIZE].count <= 0 ) {
+    panic("uncow_pg: page owns no cows");
+  }
+  pg_cowrefs[oldpa/PGSIZE].count--;
+  release(&pg_cowrefs[oldpa/PGSIZE].lock);
+
+  // TODO: is this even needed
+  acquire(&pg_cowrefs[newpa/PGSIZE].lock);
+  pg_cowrefs[newpa/PGSIZE].count = 0;
+  release(&pg_cowrefs[newpa/PGSIZE].lock);
+
+  return 0;
 }

@@ -290,8 +290,8 @@ fork(void)
     return -1;
   }
 
-  // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  //  cow fork - set memory to read only and only copy it when either parent or child write to it
+  if(uvmcowpy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
     release(&np->lock);
     return -1;
@@ -457,7 +457,7 @@ scheduler(void)
     intr_on();
 
     // if scheduling algorithm is round robin
-    if (0) {
+    if (1) {
       for(p = proc; p < &proc[NPROC]; p++) {
         acquire(&p->lock);
         if(p->state == RUNNABLE) {

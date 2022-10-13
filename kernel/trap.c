@@ -65,6 +65,8 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 15 && ((r_stval() & PTE_COW) != 0)){
+    dup_pg(p->pagetable, r_stval());
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
@@ -147,6 +149,7 @@ kerneltrap()
     panic("kerneltrap: interrupts enabled");
 
   if((which_dev = devintr()) == 0){
+    printf("%d\n", r_scause());
     printf("scause %p\n", scause);
     printf("sepc=%p stval=%p\n", r_sepc(), r_stval());
     panic("kerneltrap");
@@ -223,4 +226,3 @@ devintr()
     return 0;
   }
 }
-
