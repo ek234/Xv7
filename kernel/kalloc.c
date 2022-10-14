@@ -124,8 +124,12 @@ dup_pg ( pagetable_t pt, uint64 va ) {
     panic("uvmdup: pte does not exist");
   if((*pte & PTE_V) == 0)
     panic("uvmdup: page not valid");
+  if((*pte & PTE_COW) == 0)
+    return -2;
 
   uint flags = (PTE_FLAGS(*pte)|PTE_W)&~PTE_COW;
+  *pte &= ~PTE_V;
+  //printf("%d", pte);
 
   uint64 oldpa = PTE2PA(*pte);
   uint64 newpa;

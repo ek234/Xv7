@@ -65,8 +65,7 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if(r_scause() == 15 && ((r_stval() & PTE_COW) != 0)){
-    dup_pg(p->pagetable, r_stval());
+  } else if(r_scause() == 15 && (dup_pg(p->pagetable, r_stval()) != -2)) {
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
