@@ -1,5 +1,7 @@
 # Report
 
+To run the code with different scheduling algorithms, we 
+
 ## Scheduling Algorithm 1: FCFS
 
 + For the FCFS scheduler, we add a parameter `ctime` in the struct proc which stores the creation time in ticks of the process. ctime is set in the `allocproc` function.

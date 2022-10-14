@@ -3,8 +3,8 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 
-#define NFORK 15
-#define IO 5
+#define NFORK 5
+#define IO 0
 
 int main() {
   int n, pid;
@@ -18,7 +18,7 @@ int main() {
           if (n < IO) {
             sleep(200); // IO bound processes
           } else {
-            for (int i = 0; i < 2000000000; i++) {}; // CPU bound process
+            for (volatile int i = 0; i < 2000000000; i++) {}; // CPU bound process
           }
           printf("Process %d finished\n", n);
           exit(0);

@@ -514,6 +514,8 @@ update_time()
   struct proc* p;
   for (p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
+    // Uncomment the below line for the data required to plot the graph for MLFQ
+    // if (p->pid > 3) printf("%d %d %d\n", p->pid, ticks, p->cur_q); 
     if (p->state == RUNNING) {
       p->rtime++;
       p->pbs_rtime++;
@@ -527,6 +529,7 @@ update_time()
     }
     release(&p->lock); 
   }
+  ageing();
 }
 
 // Sets the number of tickets for the process
@@ -731,15 +734,11 @@ init_queues(void) {
   }
 }
 
-// MLFQ scheduler
 void
-mlfq_scheduler(struct cpu* c) {
+ageing(void) {
   struct proc *p;
-  struct proc *scheduled;
-
-  // Aging all processes
   for (int i=1; i<5; i++) {
-    while(!is_empty(qs[i]) && (head(qs[i])->mlfq_wtime) >= 30) {
+    while(!is_empty(qs[i]) && (head(qs[i])->mlfq_wtime) >= 40) {
       p = deq(qs[i]);
       acquire(&p->lock);
       p->cur_q = i-1;
@@ -747,6 +746,13 @@ mlfq_scheduler(struct cpu* c) {
       release(&p->lock);
     }
   }
+}
+
+// MLFQ scheduler
+void
+mlfq_scheduler(struct cpu* c) {
+  struct proc *p;
+  struct proc *scheduled;
 
   for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
