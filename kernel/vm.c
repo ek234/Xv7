@@ -153,6 +153,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
+  //printf("mapping %d\n", pte);
     if(*pte & PTE_V)
       panic("mappages: remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
@@ -296,37 +297,30 @@ uvmfree(pagetable_t pagetable, uint64 sz)
   freewalk(pagetable);
 }
 
-// Given a parent process's page table, copy
-// its memory into a child's page table.
-// Copies both the page table and the
-// physical memory.
-// returns 0 on success, -1 on failure.
-// frees any allocated pages on failure.
-int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+// copy the parent's pagetable to the child and
+// disable write perms and mark the pte's with COW tag
+// used by exec for the user stack guard page.
+uint64
+uvmcowpy(pagetable_t old, pagetable_t new, uint64 sz)
 {
   pte_t *pte;
-  uint64 pa, i;
-  uint flags;
-  char *mem;
+  uint64 i;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      panic("uvmreadonly: pte should exist");
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
-    }
-  }
-  return 0;
+      panic("uvmreadonly: page not present");
 
+    *pte &= ~PTE_W;
+    *pte |= PTE_COW;
+
+    sfence_vma();
+    if ( cowmappage( new, i, PGSIZE, PTE2PA(*pte), PTE_FLAGS(*pte) ) < 0 )
+      goto err;
+  }
+
+  return 0;
  err:
   uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
@@ -355,6 +349,10 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+
+    if(dup_pg(pagetable, va0) < 0)
+      return -1;
+
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
