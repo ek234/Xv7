@@ -5,11 +5,13 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "queue.h"
 
 struct spinlock tickslock;
 uint ticks;
 
 extern char trampoline[], uservec[], userret[];
+extern struct queue* qs[5];
 
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
@@ -81,6 +83,23 @@ usertrap(void)
 #if defined(RR) || defined(LBS)
   if(which_dev == 2)
     yield();
+#elif defined(MLFQ)
+  if(which_dev == 2) {
+    struct proc *p = myproc();
+    p->mlfq_rtime++;
+    p->timeslice[p->cur_q]++;
+    if (p->mlfq_rtime >= (1 << p->cur_q)) {
+      if (p->cur_q < 4)
+        p->cur_q++;
+      yield();
+    }
+    for (int i=0; i<p->cur_q; i++) {
+      if (!is_empty(qs[i])) {
+        yield();
+        break;
+      }
+    }
+  }
 #endif
   usertrapret();
 }
@@ -159,6 +178,27 @@ kerneltrap()
 #if defined(RR) || defined(LBS)
   if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
     yield();
+  // the yield() may have caused some traps to occur,
+  // so restore trap registers for use by kernelvec.S's sepc instruction.
+  w_sepc(sepc);
+  w_sstatus(sstatus);
+#elif defined(MLFQ)
+  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING) {
+    struct proc *p = myproc();
+    p->mlfq_rtime++;
+    p->timeslice[p->cur_q]++;
+    if (p->mlfq_rtime >= (1 << p->cur_q)) {
+      if (p->cur_q < 4)
+        p->cur_q++;
+      yield();
+    }
+    for (int i=0; i<p->cur_q; i++) {
+      if (!is_empty(qs[i])) {
+        yield();
+        break;
+      }
+    }
+  }
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.
   w_sepc(sepc);

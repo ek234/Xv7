@@ -115,4 +115,11 @@ struct proc {
   uint pbs_rtime;              // How long did the process run since last scheduler call
   uint num_sched;              // How many times the process was scheduled (Only for PBS scheduler)
   uint spriority;              // Static priority of the process
+
+  int in_queue;                // Is the process in the queue
+  int cur_q;                   // Current queue of the process
+
+  uint mlfq_rtime;             // How long did the process run since last scheduler call
+  uint mlfq_wtime;             // How long did the process wait since last scheduler call
+  int timeslice[5];            // Timeslice for the process
 };

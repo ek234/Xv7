@@ -3,7 +3,7 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 
-#define NFORK 10
+#define NFORK 15
 #define IO 5
 
 int main() {
