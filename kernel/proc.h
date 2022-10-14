@@ -105,5 +105,30 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   int tracemask;               // Integer mask specifying which syscalls to trace
-  uint64 ctime;                // Tick at which the process started
+  int tickets;                 // Number of tickets for lottery scheduler
+  uint rtime;                  // How long the process ran for
+  uint ctime;                  // When was the process created 
+  uint etime;                  // When did the process exited
+  uint stime;                  // When did the process start sleeping
+
+  uint pbs_stime;              // How long did the process sleep since last scheduler call
+  uint pbs_rtime;              // How long did the process run since last scheduler call
+  uint num_sched;              // How many times the process was scheduled (Only for PBS scheduler)
+  uint spriority;              // Static priority of the process
+
+  int in_queue;                // Is the process in the queue
+  int cur_q;                   // Current queue of the process
+
+  uint mlfq_rtime;             // How long did the process run since last scheduler call
+  uint mlfq_wtime;             // How long did the process wait since last scheduler call
+  int timeslice[5];            // Timeslice for the process
+
+  struct {
+    uint64 countup;            // Number of ticks until the next alarm call
+    uint64 delta;              // Number of ticks between each call
+    int isRinging;             // Boolean to check if proc is in handler
+    uint64 handler;            // Handler fn
+    struct trapframe savedtf;  // saved trapframe
+    //struct context savedcnxt;  // saved context
+  } alarm;                     // proc alarm
 };

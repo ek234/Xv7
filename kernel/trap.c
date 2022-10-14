@@ -5,11 +5,13 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "queue.h"
 
 struct spinlock tickslock;
 uint ticks;
 
 extern char trampoline[], uservec[], userret[];
+extern struct queue* qs[5];
 
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
@@ -78,11 +80,41 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  // Only yield if scheduling algo is round robin
-  if (0) {
-    if(which_dev == 2)
+  // Only yield if scheduling algo is round robin or lottery based scheduler
+#if defined(RR) || defined(LBS)
+  if(which_dev == 2)
+                        if ( !p->alarm.isRinging ) {
+                          if ( p->alarm.delta && p->alarm.countup >= p->alarm.delta ) {
+
+                            p->alarm.savedtf = *p->trapframe;
+                            //p->alarm.savedcnxt = p->context;
+
+                            p->alarm.isRinging = 1;
+
+                            p->trapframe->epc = p->alarm.handler;
+                          } else {
+                            p->alarm.countup++;
+                          }
+                        }
+    yield();
+#elif defined(MLFQ)
+  if(which_dev == 2) {
+    struct proc *p = myproc();
+    p->mlfq_rtime++;
+    p->timeslice[p->cur_q]++;
+    if (p->mlfq_rtime >= (1 << p->cur_q)) {
+      if (p->cur_q < 4)
+        p->cur_q++;
       yield();
+    }
+    for (int i=0; i<p->cur_q; i++) {
+      if (!is_empty(qs[i])) {
+        yield();
+        break;
+      }
+    }
   }
+#endif
   usertrapret();
 }
 
@@ -156,15 +188,37 @@ kerneltrap()
 
   // give up the CPU if this is a timer interrupt.
 
-  // Only yield if scheduling algo is round robin
-  if (0) {
-    if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
+  // Only yield if scheduling algo is round robin or lottery based scheduler
+  (void)sepc;
+#if defined(RR) || defined(LBS)
+  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
+    yield();
+  // the yield() may have caused some traps to occur,
+  // so restore trap registers for use by kernelvec.S's sepc instruction.
+  w_sepc(sepc);
+  w_sstatus(sstatus);
+#elif defined(MLFQ)
+  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING) {
+    struct proc *p = myproc();
+    p->mlfq_rtime++;
+    p->timeslice[p->cur_q]++;
+    if (p->mlfq_rtime >= (1 << p->cur_q)) {
+      if (p->cur_q < 4)
+        p->cur_q++;
       yield();
-    // the yield() may have caused some traps to occur,
-    // so restore trap registers for use by kernelvec.S's sepc instruction.
-    w_sepc(sepc);
-    w_sstatus(sstatus);
+    }
+    for (int i=0; i<p->cur_q; i++) {
+      if (!is_empty(qs[i])) {
+        yield();
+        break;
+      }
+    }
   }
+  // the yield() may have caused some traps to occur,
+  // so restore trap registers for use by kernelvec.S's sepc instruction.
+  w_sepc(sepc);
+  w_sstatus(sstatus);
+#endif
 }
 
 void
@@ -172,6 +226,7 @@ clockintr()
 {
   acquire(&tickslock);
   ticks++;
+  update_time();
   wakeup(&ticks);
   release(&tickslock);
 }

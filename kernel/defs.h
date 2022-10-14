@@ -8,6 +8,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct queue;
 
 // bio.c
 void            binit(void);
@@ -103,11 +104,16 @@ void            sched(void);
 void            sleep(void*, struct spinlock*);
 void            userinit(void);
 int             wait(uint64);
+int             waitx(uint64, uint*, uint*);
+int             settickets(int);
+int             set_priority(int new_priority, int pid);
 void            wakeup(void*);
 void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+void            update_time(void);
+void            init_queues(void);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -189,3 +195,10 @@ void            virtio_disk_intr(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+
+// queue.c
+struct queue*   init_queue(void);
+int             enq(struct queue*, struct proc*, int);
+struct proc*    deq(struct queue*);
+int             is_empty(struct queue*);
+struct proc*    head(struct queue*);
