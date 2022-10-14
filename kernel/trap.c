@@ -67,13 +67,7 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if(r_scause() == 15) {
-    printf("aaaaaaaaaaaaaaaa\n\n\n");
-    if ( dup_pg(p->pagetable, r_stval()) == -1 ) {
-      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
-      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-      setkilled(p);
-    }
+  } else if(r_scause() == 15 && (dup_pg(p->pagetable, r_stval()))!=-1) {
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

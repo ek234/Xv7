@@ -61,18 +61,16 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  if ( PA2PTE((uint64)pa) & PTE_COW ) {
-    acquire(&pg_cowrefs[(uint64)pa/PGSIZE].lock);
-    if ( pg_cowrefs[(uint64)pa/PGSIZE].count < 0 ) {
-      panic("kfree: cow page with neg cows");
-    }
-    if ( pg_cowrefs[(uint64)pa/PGSIZE].count > 0 ) {
-      pg_cowrefs[(uint64)pa/PGSIZE].count--;
-      release(&pg_cowrefs[(uint64)pa/PGSIZE].lock);
-      return;
-    }
-    release(&pg_cowrefs[(uint64)pa/PGSIZE].lock);
+  acquire(&pg_cowrefs[(uint64)pa/PGSIZE].lock);
+  if ( pg_cowrefs[(uint64)pa/PGSIZE].count < 0 ) {
+    panic("kfree: cow page with neg cows");
   }
+  if ( pg_cowrefs[(uint64)pa/PGSIZE].count > 0 ) {
+    pg_cowrefs[(uint64)pa/PGSIZE].count--;
+    release(&pg_cowrefs[(uint64)pa/PGSIZE].lock);
+    return;
+  }
+  release(&pg_cowrefs[(uint64)pa/PGSIZE].lock);
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
@@ -121,33 +119,31 @@ cowmappage (pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm) 
   return ret;
 }
 
+// duplicates a cow page to new physical location
+// returns 0 on success
+// returns -1 on not a valid page ( error should be handled in usertrap() )
+// returns -2 if not enough memory for a new physical page
 int
 dup_pg ( pagetable_t pt, uint64 va ) {
   if ( va >= MAXVA || va == 0 )
-    panic("dup_pg: tmp panic remove from prod");
+    return -1;
   pte_t* pte;
   if((pte = walk(pt, va, 0)) == 0)
-    panic("dup_pg: pte does not exist");
-  if((*pte & PTE_V) == 0)
-    panic("dup_pg: page not valid");
-  if((*pte & PTE_COW) == 0)
-    panic("attacaaak");
-    //return -2;                        TODO
-  if( (*pte & PTE_U) == 0 )
-    panic("dup_pg: nonuser");
-  if( (*pte & PTE_V) == 0 )
-    panic("dup_pg: invalid");
+    return -1;
 
-  //uint flags = (PTE_FLAGS(*pte)|PTE_W)&~PTE_COW;
-  // TODO: make it invalid
-  //*pte &= ~PTE_V;
-  //printf("%d", pte);
+  if((*pte & PTE_COW) == 0)
+    return 0;  // not a cow'd addr
+
+  if( (*pte & PTE_U) == 0 )
+    return -1;  // not accessible to user
+  if( (*pte & PTE_V) == 0 )
+    return -1;  // not a valid page
 
   uint64 oldpa = PTE2PA(*pte);
   uint64 newpa;
 
   if((newpa = (uint64)kalloc()) == 0)
-    panic("oaetuaoeuo");
+    return -2;
   memmove((void*)newpa, (void*)oldpa, PGSIZE);
 
   *pte = PA2PTE(newpa) | PTE_U | PTE_V | PTE_W | PTE_X | PTE_R;
