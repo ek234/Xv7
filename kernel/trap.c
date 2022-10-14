@@ -80,6 +80,19 @@ usertrap(void)
   // Only yield if scheduling algo is round robin or lottery based scheduler
 #if defined(RR) || defined(LBS)
   if(which_dev == 2)
+                        if ( !p->alarm.isRinging ) {
+                          if ( p->alarm.delta && p->alarm.countup >= p->alarm.delta ) {
+
+                            p->alarm.savedtf = *p->trapframe;
+                            //p->alarm.savedcnxt = p->context;
+
+                            p->alarm.isRinging = 1;
+
+                            p->trapframe->epc = p->alarm.handler;
+                          } else {
+                            p->alarm.countup++;
+                          }
+                        }
     yield();
 #endif
   usertrapret();

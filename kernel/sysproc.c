@@ -157,5 +157,5 @@ sys_sigreturn(void)
   p->alarm.isRinging = 0;
   *p->trapframe = p->alarm.savedtf;
 
-  return 0;
+  return p->alarm.savedtf.a0;
 }
