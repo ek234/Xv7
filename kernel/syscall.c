@@ -103,6 +103,8 @@ extern uint64 sys_link(void);
 extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
 extern uint64 sys_trace(void);
+extern uint64 sys_sigalarm(void);
+extern uint64 sys_sigreturn(void);
 extern uint64 sys_settickets(void);
 extern uint64 sys_set_priority(void);
 
@@ -131,6 +133,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
 [SYS_trace]   sys_trace,
+[SYS_sigalarm]  sys_sigalarm,
+[SYS_sigreturn] sys_sigreturn,
 [SYS_waitx]   sys_waitx,
 [SYS_settickets] sys_settickets,
 [SYS_set_priority] sys_set_priority,
@@ -165,6 +169,8 @@ void printtrace(int pid, int signum, int ret) {
     case SYS_mkdir  :  printf("mkdir");   numargs = 1; break;
     case SYS_close  :  printf("close");   numargs = 1; break;
     case SYS_trace  :  printf("trace");   numargs = 1; break;
+    case SYS_sigalarm   :  printf("sigalarm");   numargs = 2; break;
+    case SYS_sigreturn  :  printf("sigreturn");  numargs = 0; break;
     case SYS_waitx        :  printf("waitx");          numargs = 3; break;
     case SYS_settickets   :  printf("settickets");     numargs = 1; break;
     case SYS_set_priority :  printf("setpriority");    numargs = 2; break;

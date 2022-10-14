@@ -509,6 +509,24 @@ update_time()
     if (p->state == RUNNING) {
       p->rtime++;
       p->pbs_rtime++;
+
+                        if ( !p->alarm.isRinging ) {
+                          if ( p->alarm.delta && p->alarm.countup >= p->alarm.delta ) {
+
+                            p->alarm.savedtf = *p->trapframe;
+                            //p->alarm.savedcnxt = p->context;
+
+                            printf("a");
+                            p->alarm.isRinging = 1;
+
+                            printf("%d", p->alarm.handler);
+                            p->trapframe->epc = p->alarm.handler;
+                            printf("b\n");
+                          } else {
+                            p->alarm.countup++;
+                          }
+                        }
+
     }
     else if (p->state == SLEEPING) {
       p->pbs_stime++;
@@ -576,6 +594,7 @@ rr_scheduler(struct cpu* c)
       p->state = RUNNING;
       c->proc = p;
       swtch(&c->context, &p->context);
+      printf(" ");
 
       // Process is done running for now.
       // It should have changed its p->state before coming back.

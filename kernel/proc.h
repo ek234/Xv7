@@ -115,4 +115,13 @@ struct proc {
   uint pbs_rtime;              // How long did the process run since last scheduler call
   uint num_sched;              // How many times the process was scheduled (Only for PBS scheduler)
   uint spriority;              // Static priority of the process
+
+  struct {
+    uint64 countup;            // Number of ticks until the next alarm call
+    uint64 delta;              // Number of ticks between each call
+    int isRinging;             // Boolean to check if proc is in handler
+    uint64 handler;            // Handler fn
+    struct trapframe savedtf;  // saved trapframe
+    //struct context savedcnxt;  // saved context
+  } alarm;                     // proc alarm
 };
