@@ -301,13 +301,13 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // disable write perms and mark the pte's with COW tag
 // used by exec for the user stack guard page.
 uint64
-uvmcowpy(pagetable_t pt, pagetable_t npt, uint64 sz)
+uvmcowpy(pagetable_t old, pagetable_t new, uint64 sz)
 {
   pte_t *pte;
   uint64 i;
 
   for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walk(pt, i, 0)) == 0)
+    if((pte = walk(old, i, 0)) == 0)
       panic("uvmreadonly: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmreadonly: page not present");
@@ -315,13 +315,14 @@ uvmcowpy(pagetable_t pt, pagetable_t npt, uint64 sz)
     *pte &= ~PTE_W;
     *pte |= PTE_COW;
 
-    if ( cowmappage( npt, i, PGSIZE, PTE2PA(*pte), PTE_FLAGS(*pte) ) < 0 )
+    sfence_vma();
+    if ( cowmappage( new, i, PGSIZE, PTE2PA(*pte), PTE_FLAGS(*pte) ) < 0 )
       goto err;
   }
 
   return 0;
  err:
-  uvmunmap(npt, 0, i / PGSIZE, 1);
+  uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
 }
 
