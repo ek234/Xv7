@@ -130,3 +130,32 @@ sys_trace(void)
   myproc()->tracemask = mask;
   return 0;
 }
+
+uint64
+sys_sigalarm(void)
+{
+  int delta;
+  argint(0, &delta);
+  uint64 handler;
+  argaddr(1, &handler);
+
+  struct proc* p = myproc();
+
+  p->alarm.delta = delta;
+  p->alarm.countup = 0;
+  p->alarm.handler = (uint64)handler;
+
+  return 0;
+}
+
+uint64
+sys_sigreturn(void)
+{
+  struct proc* p = myproc();
+
+  p->alarm.countup = 0;
+  p->alarm.isRinging = 0;
+  *p->trapframe = p->alarm.savedtf;
+
+  return p->alarm.savedtf.a0;
+}

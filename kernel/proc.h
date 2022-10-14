@@ -122,4 +122,13 @@ struct proc {
   uint mlfq_rtime;             // How long did the process run since last scheduler call
   uint mlfq_wtime;             // How long did the process wait since last scheduler call
   int timeslice[5];            // Timeslice for the process
+
+  struct {
+    uint64 countup;            // Number of ticks until the next alarm call
+    uint64 delta;              // Number of ticks between each call
+    int isRinging;             // Boolean to check if proc is in handler
+    uint64 handler;            // Handler fn
+    struct trapframe savedtf;  // saved trapframe
+    //struct context savedcnxt;  // saved context
+  } alarm;                     // proc alarm
 };
