@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "queue.h"
 
 uint random_choice = 12345;
 
@@ -16,6 +17,8 @@ struct proc *initproc;
 
 int nextpid = 1;
 struct spinlock pid_lock;
+
+struct queue *qs[5];
 
 extern void forkret(void);
 static void freeproc(struct proc *p);
@@ -126,11 +129,6 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-  p->tickets = 1;
-  p->spriority = 60;
-  p->num_sched = 0;
-  p->pbs_rtime = 0;
-  p->pbs_stime = 0;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -155,6 +153,16 @@ found:
   p->rtime = 0;
   p->etime = 0;
   p->ctime = ticks;
+  p->tickets = 1;
+  p->spriority = 60;
+  p->num_sched = 0;
+  p->pbs_rtime = 0;
+  p->pbs_stime = 0;
+
+  enq(qs[0], p, 0);
+  for (int i=0; i<5; i++) {
+    p->timeslice[i] = 0;
+  }
 
   return p;
 }
@@ -513,6 +521,10 @@ update_time()
     else if (p->state == SLEEPING) {
       p->pbs_stime++;
     }
+
+    if (p->in_queue == 1) {
+      p->mlfq_wtime++;
+    }
     release(&p->lock); 
   }
 }
@@ -709,6 +721,66 @@ pbs_scheduler(struct cpu* c) {
     swtch(&c->context, &favoured->context);
     c->proc = 0;
     release(&favoured->lock);
+  }
+}
+
+void
+init_queues(void) {
+  for (int i = 0; i < 5; i++) {
+    qs[i] = init_queue();
+  }
+}
+
+// MLFQ scheduler
+void
+mlfq_scheduler(struct cpu* c) {
+  struct proc *p;
+  struct proc *scheduled;
+
+  // Aging all processes
+  for (int i=1; i<5; i++) {
+    while(!is_empty(qs[i]) && (head(qs[i])->mlfq_wtime) >= 30) {
+      p = deq(qs[i]);
+      acquire(&p->lock);
+      p->cur_q = i-1;
+      enq(qs[i-1], p, i-1);
+      release(&p->lock);
+    }
+  }
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state == RUNNABLE && p->in_queue == 0){
+      enq(qs[p->cur_q], p, p->cur_q);
+    }
+    release(&p->lock);
+  }
+
+  for (int i=0; i<5; i++) {
+    while (!is_empty(qs[i])) {
+      p = deq(qs[i]);
+      acquire(&p->lock);
+      p->in_queue = 0;
+      if (p->state == RUNNABLE) {
+        scheduled = p;
+        goto execute;
+      }
+      release(&p->lock);
+    }
+  }
+  return;
+  
+execute:
+  if (scheduled != 0) {
+    scheduled->state = RUNNING;
+    scheduled->mlfq_rtime = 0;
+    c->proc = scheduled;
+    swtch(&c->context, &scheduled->context);
+    if (scheduled->state == RUNNABLE) {
+      enq(qs[scheduled->cur_q], scheduled, scheduled->cur_q);
+    }
+    c->proc = 0;
+    release(&scheduled->lock);
   }
 }
 
@@ -954,7 +1026,8 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    printf("%d %s %s | %d %d %d | %d %d", p->pid, state, p->name, p->ctime, p->tickets, p->spriority, p->pbs_rtime, p->pbs_stime);
+    // printf("%d %s %s | %d %d %d | %d %d", p->pid, state, p->name, p->ctime, p->tickets, p->spriority, p->pbs_rtime, p->pbs_stime);
+    printf("%d %s %s | %d %d %d | %d %d %d %d %d", p->pid, state, p->name, p->cur_q, p->mlfq_rtime, p->mlfq_wtime, p->timeslice[0], p->timeslice[1], p->timeslice[2], p->timeslice[3], p->timeslice[4]);
     printf("\n");
   }
 }
